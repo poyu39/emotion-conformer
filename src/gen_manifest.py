@@ -1,9 +1,12 @@
 import argparse
 import glob
+import logging
 import os
 
 import soundfile
 from tqdm import tqdm
+
+import logger
 
 
 def get_parser():
@@ -25,9 +28,14 @@ def main(args):
     root = os.path.realpath(args.root)
     out_path = os.path.join(args.dest, f'{args.output_name}.tsv')
     
-    print(f'📁 Root directory: {root}')
-    print(f'📂 Input folders: {args.folders}')
-    print(f'📝 Output file: {out_path}')
+    logger = logging.getLogger('gen_manifest')
+    
+    logger.info('Initializing manifest generation')
+    logger.info('-' * 40)
+    logger.info(f'Root directory: {root}')
+    logger.info(f'Input folders: {args.folders}')
+    logger.info(f'Output file: {out_path}')
+    logger.info('-' * 40)
     
     audio_files = []
     
@@ -40,13 +48,13 @@ def main(args):
     audio_files = sorted(audio_files)
     
     with open(out_path, 'w') as f:
-        print(root, file=f)  # First line: root path
+        logger.info(f'Found {len(audio_files)} audio files')
         for path in tqdm(audio_files, desc='Writing manifest', unit='file'):
             frames = soundfile.info(path).frames
             rel_path = os.path.relpath(path, root)
             print(f'{rel_path}\t{frames}', file=f)
     
-    print(f'✅ Done! Manifest written to: {out_path}')
+    logger.info('Manifest generation completed successfully!')
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ import soundfile as sf
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset, random_split
 
-import config
+import logger
 
 
 class EmoType:
