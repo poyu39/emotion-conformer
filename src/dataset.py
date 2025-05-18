@@ -1,4 +1,5 @@
 import logging
+from math import e
 from pathlib import Path
 
 import numpy as np
@@ -26,19 +27,6 @@ class EmoType:
         DISGUST = 'dis'
         OTHER = 'xxx'
         ALL = [ANGRY, HAPPY, SAD, NEUTRAL, FRUSTRATED, EXCITED, FEARFUL, SURPRISE, DISGUST, OTHER]
-        
-        idx_map = {
-            ANGRY: 0,
-            HAPPY: 1,
-            SAD: 2,
-            NEUTRAL: 3,
-            FRUSTRATED: 4,
-            EXCITED: 5,
-            FEARFUL: 6,
-            SURPRISE: 7,
-            DISGUST: 8,
-            OTHER: 9
-        }
 
 
 class DatasetPreprocessor:
@@ -79,6 +67,11 @@ class DatasetPreprocessor:
                         skip += 1
                         continue
                     
+                    waveforms = self.read_audio(wav)
+                    if len(waveforms) < 16000:
+                        skip += 1
+                        continue
+                    
                     # regex: Ses01F_impro01_F000	neu
                     reg = regex.search(rf'{wav.stem}\s+(\w+)', label_buffer)
                     if reg is None:
@@ -91,9 +84,17 @@ class DatasetPreprocessor:
                         continue
                     
                     buf[wav.stem] = {
-                        'waveforms': self.read_audio(wav),
+                        'waveforms': waveforms,
                         'label': wav_label
                     }
+        
+        # check waveforms
+        waveform_avg = np.mean([len(v['waveforms']) for v in buf.values()])
+        for k, v in buf.items():
+            if len(v['waveforms']) > waveform_avg * 2:
+                skip += 1
+                continue
+        
         self.logger.info(f'Extracted {len(buf)} samples, skipped {skip} samples.')
         return buf
     
@@ -108,29 +109,41 @@ class DatasetPreprocessor:
         
         return wav
     
-    def pack_cache(self, buf: dict, output_path: str):
+    def pack_cache(self, buf: dict, emo_type: list, output_path: str):
         '''
         Pack the dataset into a .npy file.
         Args:
             output_path: path to the output file
         '''
-        np.save(output_path, buf, allow_pickle=True)
-        size = Path(output_path).stat().st_size
-        self.logger.info(f'Packing {len(buf)} samples into {output_path} done')
+        feature_path = Path(output_path + '/feature.npy')
+        label_idx_path = Path(output_path + '/label_map.npy')
+        
+        
+        np.save(feature_path, buf, allow_pickle=True)
+        size = Path(feature_path).stat().st_size
+        self.logger.info(f'Packing {len(buf)} samples into {feature_path} done')
         self.logger.info(f'File size: {size / 1024 / 1024 / 1024:.2f} GB')
+        
+        # label to index mapping
+        label_to_idx = {label: idx for idx, label in enumerate(emo_type)}
+        np.save(label_idx_path, label_to_idx, allow_pickle=True)
+        self.logger.info(f'label index: {label_to_idx}')
+        self.logger.info(f'Packing label index mapping into {label_idx_path} done')
 
 
 class IEMOCAP_Dataset(Dataset):
-    def __init__(self, npy_path: str):
+    def __init__(self, npy_path: str, label_map: dict):
         '''
         Initialize the dataset.
         Args:
             dataset_path: path to the dataset
         '''
-        assert Path(npy_path).exists(), f'File {npy_path} does not exist'
         dataset_npy: np.ndarray = np.load(npy_path, allow_pickle=True)
         self.dataset: dict = dataset_npy.item()
         self.keys = list(self.dataset.keys())
+        
+        label_map_npy: np.ndarray = np.load(label_map, allow_pickle=True)
+        self.label_map: dict = label_map_npy.item()
     
     def __len__(self):
         return len(self.dataset)
@@ -142,47 +155,56 @@ class IEMOCAP_Dataset(Dataset):
         label = item['label']
         return {
             'waveform': waveform,
-            'label': EmoType.IEMOCAP.idx_map[label]
+            'label': self.label_map[label]
         }
 
 
 class PadCollator:
-    def __init__(self, mode='train', fixed_len=None):
+    def __init__(self, mode='train', fixed_len=16000 * 4):
         assert mode in ['train', 'val', 'test'], f'Invalid mode {mode}'
         self.mode = mode
         self.fixed_len = fixed_len
-        self.max_len = 0  # only meaningful in train/val
-    
-    def set_max_len(self, max_len):
-        self.max_len = max_len
     
     def __call__(self, batch):
         waveforms = [torch.tensor(item['waveform']) for item in batch]
         labels = [item['label'] for item in batch]
         
-        if self.mode == 'train':
-            batch_max_len = max(w.shape[0] for w in waveforms)
-            self.max_len = max(self.max_len, batch_max_len)
-            pad_len = self.max_len
-        elif self.mode == 'val':
-            pad_len = self.max_len
-        elif self.mode == 'test':
-            pad_len = max(w.shape[0] for w in waveforms)
+        pad_len = self.fixed_len
         
-        # fixed_len
-        pad_len = pad_len if self.fixed_len is None else self.fixed_len
+        padded_waveforms = []
+        padding_masks = []
         
-        padded_waveforms = [torch.nn.functional.pad(w, (0, pad_len - w.shape[0])) for w in waveforms]
-        waveform_tensor = torch.stack(padded_waveforms)
-        label_tensor = torch.tensor(labels)
+        for w in waveforms:
+            length = w.shape[0]
+            
+            if length > pad_len:
+                w = w[:pad_len]
+                padding_mask = torch.zeros(pad_len, dtype=torch.bool)  # 全部有效
+            else:
+                padding_mask = torch.cat([
+                    torch.zeros(length, dtype=torch.bool),          # 有效區段
+                    torch.ones(pad_len - length, dtype=torch.bool)  # padding 區段
+                ])
+                w = torch.nn.functional.pad(w, (0, pad_len - length))
+            
+            padded_waveforms.append(w)
+            padding_masks.append(padding_mask)
         
-        return {'waveform': waveform_tensor, 'label': label_tensor}
+        waveform_tensor = torch.stack(padded_waveforms)        # (B, T)
+        label_tensor = torch.tensor(labels)                    # (B,)
+        padding_mask_tensor = torch.stack(padding_masks)       # (B, T)
+        
+        return {
+            'waveform': waveform_tensor,
+            'label': label_tensor,
+            'padding_mask': padding_mask_tensor
+        }
 
 
 class IEMOCAP_DataLoader:
     def __init__(
             self,
-            npy_path: str,
+            d_path: str,
             ratios: list = [0.8, 0.1, 0.1],
         ):
         '''
@@ -193,9 +215,16 @@ class IEMOCAP_DataLoader:
         '''
         self.logger = logging.getLogger('IEMOCAP_DataLoader')
         self.logger.info('Initialized')
+        
+        npy_path = Path(d_path + '/feature.npy')
+        assert npy_path.exists(), f'File {npy_path} does not exist'
+        
+        label_map_path = Path(d_path + '/label_map.npy')
+        assert label_map_path.exists(), f'File {label_map_path} does not exist'
+        
         self.logger.info(f'Loading dataset from {npy_path}')
         
-        dataset = IEMOCAP_Dataset(npy_path)
+        dataset = IEMOCAP_Dataset(npy_path, label_map_path)
         
         self.train_size = int(len(dataset) * ratios[0])
         self.val_size = int(len(dataset) * ratios[1])
@@ -248,15 +277,15 @@ class IEMOCAP_DataLoader:
 if __name__ == '__main__':
     IEMOCAP_DATASET_PATH = '/home/poyu39/github/poyu39/emotion-conformer/dataset/IEMOCAP_full_release'
     
-    DATASET_NPY_PATH = '/home/poyu39/github/poyu39/emotion-conformer/dataset/IEMOCAP_full_release/iemocap_dataset.npy'
+    OUTPUT_PATH = '/home/poyu39/github/poyu39/emotion-conformer/dataset/IEMOCAP_full_release'
     
-    # SELECT_EMO_LIST = [EmoType.IEMOCAP.ANGRY, EmoType.IEMOCAP.HAPPY, EmoType.IEMOCAP.SAD, EmoType.IEMOCAP.NEUTRAL]
+    SELECT_EMO_LIST = [EmoType.IEMOCAP.ANGRY, EmoType.IEMOCAP.HAPPY, EmoType.IEMOCAP.SAD, EmoType.IEMOCAP.NEUTRAL]
     
-    # dataset_preprocessor = DatasetPreprocessor()
-    # buf = dataset_preprocessor.extract_iemocap_feature(IEMOCAP_DATASET_PATH, SELECT_EMO_LIST)
-    # dataset_preprocessor.pack_cache(buf, DATASET_NPY_PATH)
+    dataset_preprocessor = DatasetPreprocessor()
+    buf = dataset_preprocessor.extract_iemocap_feature(IEMOCAP_DATASET_PATH, SELECT_EMO_LIST)
+    dataset_preprocessor.pack_cache(buf, SELECT_EMO_LIST, OUTPUT_PATH)
     
-    iemocap_dataloader = IEMOCAP_DataLoader(DATASET_NPY_PATH)
+    iemocap_dataloader = IEMOCAP_DataLoader(OUTPUT_PATH)
     train_loader, val_loader, test_loader = iemocap_dataloader.get_dataloader(batch_size=32)
     for batch in train_loader:
         print(batch['waveform'].shape)
