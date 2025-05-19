@@ -1,0 +1,33 @@
+common:
+  _name: default
+  seed: 39
+  device: cuda
+
+model:
+  _name: emotion-wav2vec2-conformer
+  frontend_model:
+    _name: wav2vec2-conformer-base
+    path: /path/to/wav2vec2-conformer-base
+    freeze: True
+
+dataset:
+  _name: IEMOCAP
+  d_path: /path/to/IEMOCAP
+  ratio: [0.8, 0.1, 0.1]
+  batch_size: 32
+  num_workers: 4
+
+train:
+  fold: 1
+  epoch: 100
+
+optimizer:
+  _name: adam
+  lr: 5e-4
+  weight_decay: 1e-4
+
+scheduler:
+  _name: cosine
+  T_max: 100
+  eta_min: 1e-5
+  last_epoch: -1
