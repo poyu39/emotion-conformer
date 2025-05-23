@@ -13,7 +13,7 @@ dependencies = [
 
 [tool.uv]
 find-links = [
-    "https://download.pytorch.org/whl/cu118",
+    "https://download.pytorch.org/whl/cu126",
 ]
 
 [tool.uv.sources]
