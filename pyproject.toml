@@ -1,0 +1,20 @@
+[project]
+name = "emotion-conformer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.10.17"
+dependencies = [
+    "fairseq==0.12.2",
+    "torch==2.7.0",
+    "torchaudio==2.7.0",
+    "soundfile",
+]
+
+[tool.uv]
+find-links = [
+    "https://download.pytorch.org/whl/cu118",
+]
+
+[tool.uv.sources]
+fairseq = { path = "../fairseq", editable = true}

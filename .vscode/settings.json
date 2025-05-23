@@ -1,0 +1,7 @@
+{
+    "discord.enabled": false,
+    "python.analysis.autoSearchPaths": true,
+    "python.analysis.extraPaths": [
+        "../fairseq"
+    ]
+}
