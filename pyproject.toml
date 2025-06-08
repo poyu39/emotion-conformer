@@ -6,14 +6,16 @@ readme = "README.md"
 requires-python = "==3.10.17"
 dependencies = [
     "fairseq==0.12.2",
-    "torch==2.7.0",
-    "torchaudio==2.7.0",
+    "torch==2.7.1",
+    "torchaudio==2.7.1",
     "soundfile",
+    "tensorboard",
+    "nvitop"
 ]
 
 [tool.uv]
 find-links = [
-    "https://download.pytorch.org/whl/cu126",
+    "https://download.pytorch.org/whl/cu128",
 ]
 
 [tool.uv.sources]
