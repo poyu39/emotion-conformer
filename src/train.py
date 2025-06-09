@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import time
 from pathlib import Path
 
 import hydra
@@ -12,6 +13,7 @@ from nvitop import CudaDevice, ResourceMetricCollector
 from omegaconf import OmegaConf
 from tabulate import tabulate
 from torch.utils.tensorboard import SummaryWriter
+from tqdm.auto import tqdm
 
 from config import Config
 from dataset import IEMOCAP_DataLoader
@@ -83,7 +85,7 @@ class Trainer:
             self,
             model: EmotionWav2vec2Conformer,
             optimizer: torch.optim.Optimizer,
-            criterion: torch.nn.Module,
+            criterion: torch.nn,
             train_loader: IEMOCAP_DataLoader
         ):
         '''
@@ -92,7 +94,7 @@ class Trainer:
         model.to(self.cfg.common.device)
         model.train()
         train_loss = 0.0
-        for batch in train_loader:
+        for batch in tqdm(train_loader):
             optimizer.zero_grad()
             waveforms: torch.Tensor = batch['waveform']
             waveforms = waveforms.to(self.cfg.common.device).float()
@@ -102,7 +104,7 @@ class Trainer:
             labels = labels.to(self.cfg.common.device)
             
             outputs = model(waveforms, padding_mask)
-            loss = criterion(outputs, labels)
+            loss: torch.Tensor = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
             
@@ -217,13 +219,18 @@ class Trainer:
         # start the resource metric collector
         self.collector.start('resource')
         
+        fold_epoch_bar = tqdm(range(self.cfg.train.fold * self.cfg.train.epoch), desc='Training', unit='epoch')
+        
         for fold in range(self.cfg.train.fold):
             for epoch in range(self.cfg.train.epoch):
+                start_time = time.time()
+                
                 self.logger.info(f'Fold {fold + 1}/{self.cfg.train.fold} - Epoch {epoch + 1}/{self.cfg.train.epoch}')
+                self.logger.info(f'Learning rate: {scheduler.get_last_lr()[0]:.6f}')
+                fold_epoch_bar.set_description(f'Fold {fold + 1}/{self.cfg.train.fold} - Epoch {epoch + 1}/{self.cfg.train.epoch}')
                 
                 train_loss = self.train(model, optimizer, criterion, train_loader)
                 scheduler.step()
-                self.logger.info(f'Learning rate: {scheduler.get_last_lr()[0]:.6f}')
                 
                 res = {}
                 res['train_loss'] = train_loss
@@ -244,12 +251,16 @@ class Trainer:
                     torch.save(model.state_dict(), f'{self.checkpoint_dir}/fold_{fold + 1}-best_model.pth')
                     last_test_acc = res['test_acc']
                     self.logger.info(f'Model saved at fold {fold + 1}, epoch {epoch + 1}')
+                
+                end_time = time.time()
+                self.logger.info(f'Epoch {epoch + 1} finished in {end_time - start_time:.2f} seconds')
+                fold_epoch_bar.update(1)
         
         self.logger.info(f'Best test accuracy: {last_test_acc:.2f}%')
 
 
 if __name__ == '__main__':
-    CONFIG_NAME = 'default'
+    CONFIG_NAME = 'custom'
     
     with open(f'/home/poyu39/github/poyu39/emotion-conformer/config/{CONFIG_NAME}.yaml', 'r') as f:
         yaml_cfg = yaml.safe_load(f)
