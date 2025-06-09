@@ -5,7 +5,7 @@ from fairseq.models.wav2vec.wav2vec2 import Wav2Vec2Model
 
 
 class EmotionWav2vec2Conformer(nn.Module):
-    def __init__(self, checkpoint_path: str, num_classes: int, freeze_frontend: bool = True, device: str = None):
+    def __init__(self, checkpoint_path: str, hidden_dim: int, num_classes: int, freeze_frontend: bool = True, device: str = None):
         super(EmotionWav2vec2Conformer, self).__init__()
         self.device = device
         self.frontend_model = self._load_pretrained_model(checkpoint_path)
@@ -16,9 +16,9 @@ class EmotionWav2vec2Conformer(nn.Module):
                 param.requires_grad = False
         
         self.classifier = nn.Sequential(
-            nn.Linear(self.frontend_model.encoder.embedding_dim, 256),
+            nn.Linear(self.frontend_model.encoder.embedding_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(256, num_classes)
+            nn.Linear(hidden_dim, num_classes)
         )
     
     def _load_pretrained_model(self, checkpoint_path: str):

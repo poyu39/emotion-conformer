@@ -260,6 +260,7 @@ if __name__ == '__main__':
     
     model = EmotionWav2vec2Conformer(
         checkpoint_path=pre_config.model.frontend_model.path,
+        hidden_dim=pre_config.model.hidden_dim,
         num_classes=len(label_map),
     )
     

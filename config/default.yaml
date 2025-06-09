@@ -5,6 +5,7 @@ common:
 
 model:
   _name: emotion-wav2vec2-conformer
+  hidden_dim: 384
   frontend_model:
     _name: wav2vec2-conformer-base
     path: /path/to/wav2vec2-conformer-base

@@ -21,6 +21,7 @@ class FrontendModel:
 @dataclass
 class Model:
     _name: str = 'emotion-wav2vec2-conformer'
+    hidden_dim: int = 256
     frontend_model: FrontendModel = FrontendModel()
 
 
