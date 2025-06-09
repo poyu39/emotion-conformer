@@ -20,6 +20,7 @@ def get_parser():
     parser.add_argument('--ext', default='flac', help='Audio file extension (default: flac)')
     parser.add_argument('--output-name', default='train', help='Output .tsv filename (train, valid, test)')
     parser.add_argument('--dest', default='.', help='Output directory')
+    parser.add_argument('--dataset-name', default='dataset', help='Name of the dataset')
     return parser
 
 
@@ -41,7 +42,10 @@ def main(args):
     
     for folder in args.folders:
         folder_path = os.path.join(root, folder)
-        search_path = os.path.join(folder_path, f'**/*.{args.ext}')
+        if args.dataset_name == 'librispeech':
+            search_path = os.path.join(folder_path, f'**/*.{args.ext}')
+        elif args.dataset_name == 'iemocap':
+            search_path = os.path.join(folder_path, f'sentences/wav/**/*.{args.ext}')
         found = glob.glob(search_path, recursive=True)
         audio_files.extend(found)
     
@@ -49,6 +53,7 @@ def main(args):
     
     with open(out_path, 'w') as f:
         logger.info(f'Found {len(audio_files)} audio files')
+        f.write(f'{root}\n')
         for path in tqdm(audio_files, desc='Writing manifest', unit='file'):
             frames = soundfile.info(path).frames
             rel_path = os.path.relpath(path, root)
