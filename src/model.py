@@ -29,7 +29,7 @@ class EmotionWav2vec2Conformer(nn.Module):
         model.eval()
         return model
     
-    def forward(self, x: torch.Tensor, padding_mask: torch.Tensor = None):
+    def forward(self, x: torch.Tensor, padding_mask: torch.Tensor = None, return_hidden_states: bool = False):
         x = x.to(self.device)
         padding_mask = padding_mask.to(self.device) if padding_mask is not None else None
         
@@ -51,4 +51,8 @@ class EmotionWav2vec2Conformer(nn.Module):
             x = x.mean(dim=1)
         
         x = self.classifier(x)
-        return x
+        if return_hidden_states:
+            hidden_state = features['x']
+            return x, hidden_state
+        else:
+            return x

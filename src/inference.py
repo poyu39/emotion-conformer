@@ -1,25 +1,32 @@
+import argparse
+
 import numpy as np
 import soundfile as sf
 import torch
 from fairseq.models.wav2vec.wav2vec2 import Wav2Vec2Model
+from tqdm import tqdm
 
-from dataset import PadCollator
+from dataset import IEMOCAP_Dataset, PadCollator
 from model import EmotionWav2vec2Conformer
 
 
-def count_parameters(model: torch.nn.Module):
-    frontend_params = 0
-    downstream_params = 0
-    for name, parameter in model.named_parameters():
-        param = parameter.numel()
-        if 'frontend' in name or 'wav2vec' in name:
-            frontend_params += param
-        else:
-            downstream_params += param
-        print(f'{name}: {param}')
-    print(f'Frontend parameters: {frontend_params}')
-    print(f'Downstream parameters: {downstream_params}')
-    print(f'Total number of parameters: {frontend_params + downstream_params}')
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--frontend_model_path', type=str, required=True)
+    parser.add_argument('--checkpoint_path', type=str, required=True)
+    parser.add_argument('--hidden_dim', type=int, default=256)
+    parser.add_argument('--label_map_path', type=str, required=True)
+    
+    # inference sample audio
+    parser.add_argument('--audio_path', type=str, default=None)
+    
+    # inference dataset
+    parser.add_argument('--feature_path', type=str, default=None)
+    
+    # export hidden states
+    parser.add_argument('--export_hidden_states', type=bool, default=False)
+    
+    return parser.parse_args()
 
 def read_audio(f_path):
     '''
@@ -33,49 +40,74 @@ def read_audio(f_path):
     return wav
 
 if __name__ == '__main__':
-    FRONTEND_MODEL_PATH = ''
-    CHECKPOINT_PATH = ''
-    SAMPLE_AUDIO_PATH = ''
-    LABEL_MAP_PATH = ''
+    args = get_args()
     
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    label_map : dict = np.load(LABEL_MAP_PATH, allow_pickle=True).item()
+    label_map : dict = np.load(args.label_map_path, allow_pickle=True).item()
     idx_to_label = {v: k for k, v in label_map.items()}
-    
-    num_classes = len(label_map)
-    print(f'num_classes: {num_classes}')
+    print(f'Label map: {label_map}')
     
     model: Wav2Vec2Model = EmotionWav2vec2Conformer(
-        checkpoint_path=FRONTEND_MODEL_PATH,
-        hidden_dim=256,
-        num_classes=num_classes,
+        checkpoint_path=args.frontend_model_path,
+        hidden_dim=args.hidden_dim,
+        num_classes=len(label_map),
         freeze_frontend=True,
         device=DEVICE
     )
-    model.load_state_dict(torch.load(CHECKPOINT_PATH))
-    
-    # count parameters
-    count_parameters(model)
+    model.load_state_dict(torch.load(args.checkpoint_path, map_location=DEVICE))
     
     model.to(DEVICE)
     model.eval()
     
-    pad_collator = PadCollator()
+    if args.audio_path is not None:
+        pad_collator = PadCollator()
+        with torch.no_grad():
+            print(f'SAMPLE_AUDIO_PATH: {args.audio_path}')
+            batch = [{
+                'waveform': read_audio(args.audio_path),
+                'label': 0,
+            }]
+            
+            input_dict = pad_collator(batch)
+            
+            waveform = input_dict['waveform'].to(DEVICE).float()
+            padding_mask = input_dict['padding_mask'].to(DEVICE)
+            
+            output = model(waveform, padding_mask=padding_mask)
+            print(output)
+            predicted_class = torch.argmax(output, dim=1).to('cpu').numpy()[0]
+            print(idx_to_label[predicted_class])
     
-    with torch.no_grad():
-        print(f'SAMPLE_AUDIO_PATH: {SAMPLE_AUDIO_PATH}')
-        batch = [{
-            'waveform': read_audio(SAMPLE_AUDIO_PATH),
-            'label': 0,
-        }]
+    elif args.feature_path is not None:
+        print(f'FEATURE_PATH: {args.feature_path}')
+        dataset = IEMOCAP_Dataset(
+            npy_path=args.feature_path,
+            label_map=args.label_map_path,
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=8,
+            collate_fn=PadCollator(),
+            shuffle=False,
+        )
         
-        input_dict = pad_collator(batch)
-        
-        waveform = input_dict['waveform'].to(DEVICE).float()
-        padding_mask = input_dict['padding_mask'].to(DEVICE)
-        
-        output = model(waveform, padding_mask=padding_mask)
-        print(output)
-        predicted_class = torch.argmax(output, dim=1).to('cpu').numpy()[0]
-        print(idx_to_label[predicted_class])
+        # export hidden states
+        if args.export_hidden_states:
+            hidden_states = []
+            hidden_states_label = []
+            with torch.no_grad():
+                for batch in tqdm(dataloader, desc="Processing batches"):
+                    input_dict = batch
+                    waveform = input_dict['waveform'].to(DEVICE).float()
+                    padding_mask = input_dict['padding_mask'].to(DEVICE)
+                    
+                    output, hidden_state = model(waveform, padding_mask=padding_mask, return_hidden_states=True)
+                    hidden_states.append(hidden_state.cpu().numpy())
+                    hidden_states_label.append(input_dict['label'].cpu().numpy())
+            
+            hidden_states = np.concatenate(hidden_states, axis=0)
+            hidden_states_label = np.concatenate(hidden_states_label, axis=0)
+            np.save('hidden_states_label.npy', hidden_states_label)
+            np.save('hidden_states.npy', hidden_states)
+            print(f'saved hidden_states.npy and hidden_states_label.npy')
