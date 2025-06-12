@@ -248,7 +248,7 @@ class Trainer:
                 
                 # save
                 if res['test_acc'] > last_test_acc:
-                    torch.save(model.state_dict(), f'{self.checkpoint_dir}/fold_{fold + 1}-best_model.pth')
+                    torch.save(model.state_dict(), f'{self.checkpoint_dir}/fold_{fold + 1}-best_model.pt')
                     last_test_acc = res['test_acc']
                     self.logger.info(f'Model saved at fold {fold + 1}, epoch {epoch + 1}')
                 
