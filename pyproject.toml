@@ -10,7 +10,11 @@ dependencies = [
     "torchaudio==2.7.1",
     "soundfile",
     "tensorboard",
-    "nvitop"
+    "nvitop",
+    "ipykernel",
+    "scikit-learn",
+    "matplotlib",
+    "seaborn"
 ]
 
 [tool.uv]
