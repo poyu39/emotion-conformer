@@ -14,7 +14,9 @@ dependencies = [
     "ipykernel",
     "scikit-learn",
     "matplotlib",
-    "seaborn"
+    "seaborn",
+    "plotly",
+    "nbformat"
 ]
 
 [tool.uv]
