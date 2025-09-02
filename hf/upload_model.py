@@ -4,7 +4,7 @@ api = HfApi()
 
 api.upload_file(
     path_or_fileobj='./model/wav2vec2-conformer-base/librispeech/checkpoints/checkpoint_best.pt',
-    path_in_repo='./checkpoint/',
+    path_in_repo='./checkpoint.pt',
     repo_id='poyu39/wav2vec2-conformer-base_librispeech',
     repo_type='model',
 )
